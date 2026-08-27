@@ -8,6 +8,7 @@ import android.os.*
 import androidx.core.app.NotificationCompat
 
 class WatchdogService : Service() {
+
     companion object {
         private const val CHANNEL = "watchdog"
         private const val NOTIFICATION_ID = 1001
@@ -20,75 +21,114 @@ class WatchdogService : Service() {
     private val checker = object : Runnable {
         override fun run() {
             if (!checking) return
-            ensureTargetRunning()
-            handler.postDelayed(this, Prefs.interval(this@WatchdogService) * 1000L)
+
+            checkTarget()
+
+            handler.postDelayed(
+                this,
+                Prefs.interval(this@WatchdogService) * 1000L
+            )
         }
     }
 
     override fun onCreate() {
         super.onCreate()
+
         createChannel()
-        startForeground(NOTIFICATION_ID, notification())
+
+        startForeground(
+            NOTIFICATION_ID,
+            notification()
+        )
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int
+    ): Int {
+
         checking = true
+
+        Prefs.setEnabled(this, true)
+
         handler.removeCallbacks(checker)
         handler.post(checker)
+
         return START_STICKY
     }
 
-    private fun ensureTargetRunning() {
+    private fun checkTarget() {
+        /*
+         * ВАЖНО:
+         * Watchdog больше НЕ запускает Activity Exteragram.
+         *
+         * Поэтому он не сможет вытащить Exteragram
+         * поверх браузера, игры или другого приложения.
+         *
+         * Здесь пока только проверяем наличие приложения.
+         */
         if (!isPackageInstalled(PKG)) return
-        if (isPackageInRunningProcesses(PKG)) return
 
-        try {
-            val launch = packageManager.getLaunchIntentForPackage(PKG)
-            if (launch != null) {
-                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-                startActivity(launch)
-            }
-        } catch (_: Exception) {
-            // Android may refuse the launch after a force-stop or under OEM restrictions.
+        isTargetRunning()
+    }
+
+    private fun isPackageInstalled(pkg: String): Boolean {
+        return try {
+            packageManager.getPackageInfo(pkg, 0)
+            true
+        } catch (_: PackageManager.NameNotFoundException) {
+            false
         }
     }
 
-    private fun isPackageInstalled(pkg: String): Boolean = try {
-        packageManager.getPackageInfo(pkg, 0)
-        true
-    } catch (_: PackageManager.NameNotFoundException) {
-        false
-    }
-
     @Suppress("DEPRECATION")
-    private fun isPackageInRunningProcesses(pkg: String): Boolean {
-        val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        return am.runningAppProcesses?.any { p ->
-            p.pkgList?.contains(pkg) == true
+    private fun isTargetRunning(): Boolean {
+        val am =
+            getSystemService(Context.ACTIVITY_SERVICE)
+                    as ActivityManager
+
+        return am.runningAppProcesses?.any { process ->
+            process.pkgList?.contains(PKG) == true
         } == true
     }
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
-            val nm = getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(
-                NotificationChannel(CHANNEL, "Exteragram Watchdog", NotificationManager.IMPORTANCE_LOW)
+            val manager =
+                getSystemService(
+                    NotificationManager::class.java
+                )
+
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL,
+                    "Exteragram Watchdog",
+                    NotificationManager.IMPORTANCE_LOW
+                )
             )
         }
     }
 
-    private fun notification(): Notification =
-        NotificationCompat.Builder(this, CHANNEL)
+    private fun notification(): Notification {
+        return NotificationCompat.Builder(
+            this,
+            CHANNEL
+        )
             .setSmallIcon(android.R.drawable.ic_popup_sync)
             .setContentTitle("Exteragram Watchdog")
-            .setContentText("Сторож работает")
+            .setContentText("Сторож работает в фоне")
             .setOngoing(true)
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setCategory(
+                NotificationCompat.CATEGORY_SERVICE
+            )
             .build()
+    }
 
     override fun onDestroy() {
         checking = false
         handler.removeCallbacksAndMessages(null)
+        Prefs.setEnabled(this, false)
         super.onDestroy()
     }
 
