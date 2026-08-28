@@ -55,7 +55,6 @@ jobs:
           name: libbox
           path: |
             libbox.aar
-            libbox-legacy.aar
 
   build-apk:
     name: Build KRAKEN APK
